@@ -1,0 +1,120 @@
+CLEARSCREEN. 
+PRINT("REVISION 1.2").
+
+//Set target altitude
+
+DECLARE PARAMETER TARGET_ALT IS 100000, TARGET_INC IS 90, FUEL_RESERVE IS 1200.
+
+
+//Launch Sequence
+
+PRINT "Beginning Launch Sequence".
+FROM {local countdown is 10.} UNTIL countdown = 0 STEP {SET countdown to countdown - 1.} DO{
+	PRINT "T-" + countdown.
+	IF countdown = 8 {
+		SET MYSTEER TO HEADING (90,90).
+		LOCK STEERING TO MYSTEER.
+		PRINT "GUIDANCE ACTIVE".
+	} ELSE IF countdown = 6 {
+		LOCK THROTTLE TO 1.0.
+		PRINT "THROTTLE FULL".
+	}	ELSE IF countdown = 4 {
+		STAGE.
+		PRINT "ENGINE IGNITION".
+	}	ELSE IF countdown = 1 {
+		STAGE.
+		PRINT "CLAMP RELEASE".
+	}
+	WAIT 1.
+}
+
+
+PRINT "LIFTOFF".
+WAIT 5.
+//Staging Catch
+WHEN STAGE:LIQUIDFUEL < 1200 THEN{
+	LOCK THROTTLE TO 0.
+	WAIT 0.5.
+	STAGE.
+	LOCK THROTTLE TO 1.
+	PRINT "STAGE SEPERATION".
+	}
+	
+PRINT "VERTICAL ASCENT".
+
+
+//Initial Burn and Pitch Over
+UNTIL APOAPSIS > TARGET_ALT{
+	IF SHIP:VELOCITY:SURFACE:MAG >= 100 {
+		SET PITCH TO MAX(14.95,(90 - (SHIP:VELOCITY:SURFACE:MAG - 100)/10)).
+		SET MYSTEER TO HEADING (90,PITCH).
+		PRINT "PITCHING @ " + ROUND(PITCH,1) AT(0,17).
+	}
+	PRINT "Apoapsis @ " + ROUND(SHIP:APOAPSIS,0) + "m" AT(0,18).
+	  
+	WAIT 0.001.
+
+}
+
+//Engine Shutdown
+LOCK THROTTLE TO 0.
+WAIT 1.
+//Begin Sustainer Stage
+STAGE.
+
+//Maintain target apoapsis until out of atmosphere
+UNTIL ALTITUDE > 70000 {
+	IF APOAPSIS < TARGET_ALT -10{
+		LOCK THROTTLE TO 0.10.
+		PRINT "Sustaining" AT(0,17).
+
+	} ELSE{
+		LOCK THROTTLE TO 0.
+		PRINT "Coasting        " AT(0,17).
+		
+	}
+	PRINT "Apoapsis @ " + ROUND(SHIP:APOAPSIS,0) + "m" AT(0,18).
+
+}
+//Once outside of atmosphere
+PRINT "Coasting to circularisation burn" AT(0,17).
+UNLOCK STEERING.
+
+//Set SAS and RCS to ON for circularisation burn
+SAS ON.
+RCS ON.
+
+
+WAIT 10.
+
+	STAGE.
+	//Set SAS Mode to follow prograde
+	SET SASMODE TO "PROGRADE".
+
+	//Get stage Specific Impulse
+	LIST ENGINES IN STAGE_ENGINES.
+
+	SET STAGE_ISP TO 0.
+	FOR eng IN STAGE_ENGINES {
+		IF eng:ISP > 0 {
+			SET STAGE_ISP TO max(STAGE_ISP,eng:ISP).
+		}
+	}
+	
+	SET ORBITAL_VELOCITY TO Kerbin:Radius * SQRT((9.807)/(Kerbin:Radius + TARGET_ALT)).
+	SET EFFECTIVE_VELOCITY TO constant:g0 * STAGE_ISP.
+	SET ESTIMATED_VELOCITY TO VELOCITYAT(SHIP,TIME:SECONDS + ETA:APOAPSIS):ORBIT:MAG.
+	
+	SET DELTA_VELOCITY TO ORBITAL_VELOCITY - ESTIMATED_VELOCITY.
+
+
+	SET BURN_TIME TO ((SHIP:MASS * EFFECTIVE_VELOCITY)/SHIP:MAXTHRUST) * (1- CONSTANT:E^ (-1 *( DELTA_VELOCITY/EFFECTIVE_VELOCITY ))).
+	PRINT "".
+	PRINT "".
+	PRINT "Delta V :" + DELTA_VELOCITY.
+	PRINT "Burn Time :" +BURN_TIME.
+
+WAIT UNTIL ETA:APOAPSIS < BURN_TIME / 2.
+	LOCK THROTTLE TO 1.
+	WAIT BURN_TIME.
+		LOCK THROTTLE TO 0.
